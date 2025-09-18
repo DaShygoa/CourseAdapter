@@ -1,13 +1,13 @@
 package main.java.test
 
-import main.java.parser.YZZYParser 
+import main.java.parser.*
 import java.io.File
 import java.nio.file.Paths
 
 fun main(){
     val path = Paths.get("").toAbsolutePath().toString()
     println(path)
-    val file = File("d:\\CourseAdapter\\yongzhou.html")
-    val parser = YZZYParser(file.readText()) 
+    val file = File("C:\Users\user\CourseAdapter\学生课程表.html")
+    val parser = SZPUParser(file.readText()) 
     parser.saveCourse()
 }
