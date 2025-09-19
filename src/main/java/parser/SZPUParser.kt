@@ -1,79 +1,124 @@
-package test.java.parser
 
-import main.java.parser.SZPUParser
-import org.junit.Test
+package main.java.parser
 
-class SZPUParserTest {
+import bean.Course
+import parser.Parser
+import main.java.bean.TimeTable
+import main.java.bean.TimeDetail
 
-    @Test
-    fun testGenerateCourseList() {
-        // 1. 准备模拟的 JSON 数据
-        // 这是根据你的 provider.js 构建的示例数据
-        val sampleJson = """
-            {
-              "success": true,
-              "data": [
-                {
-                  "courseName": "大学英语（三）",
-                  "teacher": "张三",
-                  "time": "1-16周 星期一 第1节-第2节 智慧教室H3404",
-                  "location": "智慧教室H3404",
-                  "weeks": "1-16周",
-                  "credit": "2.0"
-                },
-                {
-                  "courseName": "高等数学（上）",
-                  "teacher": "李四",
-                  "time": "5周[单] 星期三 第3节-第4节 立言楼L1101,8-10周 星期三 第3节-第4节 立言楼L1101",
-                  "location": "立言楼L1101",
-                  "weeks": "5周[单],8-10周",
-                  "credit": "4.0"
-                },
-                {
-                  "courseName": "体育",
-                  "teacher": "王五",
-                  "time": "1-8周 星期五 第7节-第8节 西校区体育馆",
-                  "location": "西校区体育馆",
-                  "weeks": "1-8周",
-                  "credit": "1.0"
-                }
-              ],
-              "year": "2024",
-              "term": "1"
+class SZPUParser(source: String) : Parser(source) {
+    private val MAX_NODES_PER_DAY = 13
+    // SZPU 课表时间（如有不同可调整）
+    private val timeDetails = listOf(
+        TimeDetail(1, "08:20", "09:00"),
+        TimeDetail(2, "09:10", "09:50"),
+        TimeDetail(3, "10:10", "10:50"),
+        TimeDetail(4, "11:00", "11:40"),
+        TimeDetail(5, "12:00", "12:40"),
+        TimeDetail(6, "13:30", "14:10"),
+        TimeDetail(7, "14:20", "15:00"),
+        TimeDetail(8, "15:10", "15:50"),
+        TimeDetail(9, "16:00", "16:40"),
+        TimeDetail(10, "17:00", "17:40"),
+        TimeDetail(11, "18:30", "19:10"),
+        TimeDetail(12, "19:20", "20:00"),
+        TimeDetail(13, "20:10", "20:50")
+    )
+
+    override fun generateCourseList(): List<Course> {
+        val courseList = arrayListOf<Course>()
+        // 支持 txt 纯文本格式：每行一课，字段用制表符或空格分隔
+        val lines = source.lines().filter { it.isNotBlank() }
+        for (line in lines) {
+            // 例：课程名	星期	节次	周次	教室	教师
+            val parts = line.split('\t', ' ', '，', ',').filter { it.isNotBlank() }
+            if (parts.size < 6) continue
+            val name = parts[0]
+            val day = parseDay(parts[1])
+            val (startNode, endNode) = parseNodes(parts[2])
+            val (startWeek, endWeek, type) = parseWeeks(parts[3])
+            val room = parts[4]
+            val teacher = parts[5]
+            courseList.add(
+                Course(
+                    name = name,
+                    day = day,
+                    room = room,
+                    teacher = teacher,
+                    startNode = startNode,
+                    endNode = endNode,
+                    startWeek = startWeek,
+                    endWeek = endWeek,
+                    type = type,
+                )
+            )
+        }
+        return mergeAdjacentCourses(courseList)
+    }
+
+    private fun parseDay(dayStr: String): Int {
+        return when (dayStr.trim()) {
+            "一", "1", "Mon", "Monday" -> 1
+            "二", "2", "Tue", "Tuesday" -> 2
+            "三", "3", "Wed", "Wednesday" -> 3
+            "四", "4", "Thu", "Thursday" -> 4
+            "五", "5", "Fri", "Friday" -> 5
+            "六", "6", "Sat", "Saturday" -> 6
+            "日", "天", "7", "Sun", "Sunday" -> 7
+            else -> 1
+        }
+    }
+
+    private fun parseNodes(nodeStr: String): Pair<Int, Int> {
+        // 例：1-2节、3-4、5节
+        val regex = Regex("(\\d+)(?:-(\\d+))?")
+        val match = regex.find(nodeStr)
+        return if (match != null) {
+            val start = match.groupValues[1].toInt()
+            val end = match.groupValues.getOrNull(2)?.toIntOrNull() ?: start
+            Pair(start, end)
+        } else Pair(1, 1)
+    }
+
+    private fun mergeAdjacentCourses(courses: List<Course>): List<Course> {
+        val sorted = courses.sortedWith(compareBy({ it.day }, { it.startNode }))
+        val merged = mutableListOf<Course>()
+        for (current in sorted) {
+            val last = merged.lastOrNull()
+            if (last != null && last.day == current.day && last.name == current.name && last.endNode + 1 == current.startNode && last.startWeek == current.startWeek && last.endWeek == current.endWeek && last.type == current.type) {
+                merged[merged.lastIndex] = last.copy(endNode = current.endNode)
+            } else {
+                merged.add(current)
             }
-        """.trimIndent()
-
-        // 2. 创建解析器实例
-        val parser = SZPUParser(sampleJson)
-
-        // 3. 调用解析方法
-        val courseList = parser.generateCourseList()
-
-        // 4. 打印解析结果进行验证
-        println("解析到的课程数量: ${courseList.size}")
-        courseList.forEach { course ->
-            println("--------------------")
-            println("课程名: ${course.name}")
-            println("教师: ${course.teacher}")
-            println("教室: ${course.room}")
-            println("星期: ${course.day}")
-            println("节次: ${course.startNode}-${course.endNode}")
-            println("周次: ${course.startWeek}-${course.endWeek} (类型: ${course.type})")
         }
-
-        // 也可以在这里添加断言来自动化验证
-        // import org.junit.Assert.assertEquals
-        // assertEquals(20, courseList.size) // 示例：期望解析出20个课程对象
+        return merged
     }
 
-    @Test
-    fun testGenerateTimeTable() {
-        val parser = SZPUParser("{}") // 时间表生成与源无关，传入空JSON即可
-        val timeTable = parser.generateTimeTable()
-        println("\n时间表: ${timeTable.name}")
-        timeTable.timeList.forEach {
-            println("第${it.node}节: ${it.startTime}-${it.endTime}")
-        }
+  private fun parseWeeks(weekText: String): Triple<Int, Int, Int> {
+    // 例：1-16周、1-16周(单)、1-16周(双)
+    val regex = Regex("(\\d+)-(\\d+)周(?:\\((单|双)\\))?")
+    val match = regex.find(weekText)
+    if (match != null) {
+      val startWeek = match.groupValues[1].toInt()
+      val endWeek = match.groupValues[2].toInt()
+      val type = when (match.groupValues.getOrNull(3)) {
+        "单" -> 1
+        "双" -> 2
+        else -> 0
+      }
+      return Triple(startWeek, endWeek, type)
     }
+    return Triple(1, 20, 0)
+  }
+
+  override fun generateTimeTable(): TimeTable? {
+    val beanTimeDetails = timeDetails
+    return TimeTable("SZPU标准作息", beanTimeDetails)
+  }
+
+  override fun getTableName(): String? = "深圳职业技术大学课表"
+  override fun getNodes(): Int? = timeDetails.size
+  override fun getStartDate(): String? = null
+  override fun getMaxWeek(): Int? = 20
 }
 
